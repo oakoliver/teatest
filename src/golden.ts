@@ -15,18 +15,21 @@ import { escapeSeqs } from './quote.js';
 /** Raised when output differs from its golden file. */
 export class GoldenMismatchError extends Error {
   override readonly name = 'GoldenMismatchError';
-  constructor(
-    message: string,
-    /** Path of the golden file. */
-    readonly file: string,
-    /** The escaped golden text. */
-    readonly expected: string,
-    /** The escaped text of this run. */
-    readonly actual: string,
-    /** A plain unified diff of the escaped texts (`--- golden`, `+++ run`). */
-    readonly diff: string,
-  ) {
+  /** Path of the golden file. */
+  declare readonly file: string;
+  /** The escaped golden text. */
+  declare readonly expected: string;
+  /** The escaped text of this run. */
+  declare readonly actual: string;
+  /** A plain unified diff of the escaped texts (`--- golden`, `+++ run`). */
+  declare readonly diff: string;
+
+  constructor(message: string, file: string, expected: string, actual: string, diff: string) {
     super(message);
+    // Not enumerable: test runners print an error's own properties, and these are as long as the output.
+    for (const [key, value] of Object.entries({ file, expected, actual, diff })) {
+      Object.defineProperty(this, key, { value, enumerable: false });
+    }
   }
 }
 
@@ -44,9 +47,11 @@ export type GoldenTarget =
       update?: boolean;
       /** Colour the failure message. Default: stderr is a terminal, or `FORCE_COLOR`; never with `NO_COLOR`. */
       color?: boolean;
-      /** Lines of context around each change in the failure message. Default 3. */
+      /** Unchanged lines shown around each change in the failure message. Default 1. */
       context?: number;
-      /** Hunks shown in the failure message. Default 8. */
+      /** Width of a line of the failure message. Default: the terminal's width, at most 140, else 120. */
+      width?: number;
+      /** Hunks shown in the failure message. Default 6. */
       maxHunks?: number;
     };
 
@@ -181,6 +186,11 @@ function pretty(file: string): string {
  * output.
  */
 export function RequireEqual(out: string | Uint8Array, target?: GoldenTarget): void {
+  requireEqual(out, target, RequireEqual);
+}
+
+/** @internal `skip` is the public function the test called: the error's stack starts at its caller. */
+export function requireEqual(out: string | Uint8Array, target: GoldenTarget | undefined, skip: Function): void {
   const opts = typeof target === 'object' ? target : {};
   const file = goldenPath(target);
   const update = opts.update ?? updating();
@@ -189,9 +199,11 @@ export function RequireEqual(out: string | Uint8Array, target?: GoldenTarget): v
     writeFileSync(file, out);
   }
   if (!existsSync(file)) {
-    throw new Error(
+    const err = new Error(
       `golden file ${pretty(file)} does not exist. Run the tests with UPDATE_GOLDEN=1 to create it from this output.`,
     );
+    Error.captureStackTrace?.(err, skip);
+    throw err;
   }
   const golden = readFileSync(file);
   let goldenText: string | Uint8Array = golden;
@@ -207,15 +219,18 @@ export function RequireEqual(out: string | Uint8Array, target?: GoldenTarget): v
   const aLines = splitLines(actual).length;
   const head =
     `output does not match ${pretty(file)}\n` +
-    `golden: ${eLines} line${eLines === 1 ? '' : 's'}, run: ${aLines} line${aLines === 1 ? '' : 's'}; ` +
-    `${deleted} removed, ${inserted} added. Escape sequences are shown as text. ` +
-    `If the new output is right, run with UPDATE_GOLDEN=1.\n\n`;
+    `golden ${eLines} line${eLines === 1 ? '' : 's'}, this run ${aLines}: ${deleted} removed, ${inserted} added. ` +
+    `Escape sequences are written as text (\\x1b is the ESC byte).\n` +
+    `If the new output is right, accept it with UPDATE_GOLDEN=1.\n\n`;
   const body = renderDiff(expected, actual, {
     color,
     context: opts.context,
-    maxHunks: opts.maxHunks ?? 8,
+    maxHunks: opts.maxHunks ?? 6,
+    width: opts.width ?? Math.min(140, process.stderr.columns || 120),
   });
-  throw new GoldenMismatchError(head + body + '\n', file, expected, actual, plain);
+  const err = new GoldenMismatchError(head + body + '\n', file, expected, actual, plain);
+  Error.captureStackTrace?.(err, skip);
+  throw err;
 }
 
 /**

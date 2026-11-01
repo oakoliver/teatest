@@ -107,7 +107,8 @@ describe('RequireEqual', () => {
     expect(e.actual).toBe('count: 2\n\\x1b[1mbold\\x1b[0m\n');
     expect(e.diff).toBe('--- golden\n+++ run\n@@ -1,2 +1,2 @@\n-count: 1\n+count: 2\n \\x1b[1mbold\\x1b[0m\n');
     expect(e.message).toContain('UPDATE_GOLDEN=1');
-    expect(e.message).toContain('- count: 1\n? ');
+    expect(e.message).toContain('-    1 │   count: 1\n         ?        ^\n+    1 │   count: 2');
+    expect(e.message).toContain('@@ -1,2 +1,2 @@');
     expect(e.message).not.toContain('\x1b');
   });
 

@@ -28,7 +28,7 @@ import {
   type Program as TeaProgram,
   type ProgramOption,
 } from '@oakoliver/bubbletea';
-import { RequireEqual, type GoldenTarget } from './golden.js';
+import { requireEqual, type GoldenTarget } from './golden.js';
 import { keyBytes } from './keys.js';
 import { stripAnsi } from './quote.js';
 
@@ -462,5 +462,5 @@ export function NewTestModel(m: Model, ...options: TestOption[]): TestModel {
  * golden files.
  */
 export function RequireEqualOutput(out: string | Uint8Array, target?: GoldenTarget): void {
-  RequireEqual(out, target);
+  requireEqual(out, target, RequireEqualOutput);
 }

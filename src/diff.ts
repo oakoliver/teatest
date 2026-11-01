@@ -172,21 +172,31 @@ export function unifiedDiff(oldName: string, newName: string, oldText: string, n
 export interface RenderOptions {
   /** Colour the output with ANSI codes. */
   color: boolean;
-  /** Lines of context around each change. */
+  /** Unchanged lines shown around each change. Default 1. */
   context?: number;
-  /** Stop after this many hunks. */
+  /** Stop after this many hunks. Default: all. */
   maxHunks?: number;
-  oldName?: string;
-  newName?: string;
+  /** Width of a printed line in characters; longer lines are cut with an ellipsis. Default 120. */
+  width?: number;
 }
 
 // An escaped control sequence as `escapeSeqs` writes it: `\x1b[38;2;1;2;3m`, `\x1b]8;;url\x1b\\`, ...
-const TOKEN = /\\x1b\[[0-9;:<=>?]*[ -/]*[@-~]|\\x1b\][^\\]*(?:\\x07|\\x1b\\\\)|\\x1b.|\\x[0-9a-f]{2}|\\u[0-9a-f]{4}|\\U[0-9a-f]{8}|\\[abfnrtv\\"]|[\p{L}\p{N}_]+|\s+|[^]/gu;
+const TOKEN = /\\x1b\[[0-9;:<=>?]*[ -/]*[@-~]|\\x1b\][^\\]*(?:\\x07|\\x1b\\\\)|\\x1b.|\\x[0-9a-f]{2}|\\u[0-9a-f]{4}|\\U[0-9a-f]{8}|\\[abfnrtv\\"]|[\p{L}\p{N}_]+|[^]/gu;
 const ESCAPE_TOKEN = /^\\x1b|^\\x[0-9a-f]{2}$|^\\[abfnrtv]$/;
+const isEscape = (t: string): boolean => ESCAPE_TOKEN.test(t);
 
-/** Splits an escaped line into tokens: control sequences, words, whitespace runs and single characters. */
+/** Splits an escaped line into tokens: control sequences, words and single characters. */
 export function tokenize(line: string): string[] {
   return line.match(TOKEN) ?? [];
+}
+
+/** The text of an escaped line as a person sees it: the escape sequences and control characters are left out. */
+export function visibleText(line: string): string {
+  return tokenize(line)
+    .filter((t) => !isEscape(t))
+    .join('')
+    .replace(/\\"/g, '"')
+    .replace(/\\\\/g, '\\');
 }
 
 const chomp = (t: string): string => (t.endsWith('\n') ? t.slice(0, -1) : t);
@@ -198,12 +208,11 @@ const SGR = {
   red: '\x1b[31m',
   green: '\x1b[32m',
   cyan: '\x1b[36m',
-  yellow: '\x1b[33m',
   bgRed: '\x1b[41;97m',
   bgGreen: '\x1b[42;30m',
 };
 
-/** Marks which tokens of `a` and `b` differ. */
+/** Marks which tokens of `a` and `b` are not part of their common sequence. */
 function changedTokens(a: string[], b: string[]): [boolean[], boolean[]] {
   const ca = new Array<boolean>(a.length).fill(true);
   const cb = new Array<boolean>(b.length).fill(true);
@@ -213,104 +222,171 @@ function changedTokens(a: string[], b: string[]): [boolean[], boolean[]] {
   return [ca, cb];
 }
 
-function paint(tokens: string[], changed: boolean[] | null, side: 'old' | 'new' | 'same', color: boolean): string {
+const len = (s: string): number => [...s].length;
+
+/**
+ * Shortens a token list to `width` characters. With `changed` it keeps `ctx`
+ * characters around each changed token and replaces the rest with an ellipsis;
+ * without it, it keeps the start.
+ */
+function window(tokens: string[], changed: boolean[] | null, width: number, ctx: number): { tokens: string[]; changed: boolean[]; } {
+  const total = tokens.reduce((n, t) => n + len(t), 0);
+  if (total <= width) return { tokens, changed: changed ?? tokens.map(() => false) };
+  const keep = new Array<boolean>(tokens.length).fill(false);
+  if (!changed || !changed.some(Boolean)) {
+    let n = 0;
+    tokens.forEach((t, i) => { if (n < width - 1) keep[i] = true; n += len(t); });
+  } else {
+    let pos = 0;
+    const starts = tokens.map((t) => { const p = pos; pos += len(t); return p; });
+    tokens.forEach((t, i) => {
+      if (!changed[i]) return;
+      const from = starts[i]! - ctx;
+      const to = starts[i]! + len(t) + ctx;
+      tokens.forEach((u, j) => { if (starts[j]! + len(u) > from && starts[j]! < to) keep[j] = true; });
+    });
+  }
+  const out: string[] = [];
+  const outChanged: boolean[] = [];
+  let used = 0;
+  let gap = false;
+  tokens.forEach((t, i) => {
+    if (keep[i]) {
+      if (gap || (i > 0 && out.length === 0)) { out.push('…'); outChanged.push(false); }
+      gap = false;
+      // a single token can be longer than the window: cut it
+      const room = Math.max(8, width - used);
+      const shown = len(t) > room ? [...t].slice(0, room - 1).join('') + '…' : t;
+      out.push(shown); outChanged.push(changed?.[i] ?? false);
+      used += len(shown);
+    } else gap = true;
+  });
+  if (gap) { out.push('…'); outChanged.push(false); }
+  return { tokens: out, changed: outChanged };
+}
+
+function paint(tokens: string[], changed: boolean[], side: 'old' | 'new' | 'same', color: boolean, dimEscapes: boolean): string {
   if (!color) return tokens.join('');
   let out = '';
   for (let i = 0; i < tokens.length; i++) {
     const t = tokens[i]!;
-    const isEsc = ESCAPE_TOKEN.test(t);
-    if (changed?.[i]) out += (side === 'old' ? SGR.bgRed : SGR.bgGreen) + t + SGR.reset;
-    else if (isEsc) out += SGR.dim + SGR.cyan + t + SGR.reset;
+    if (changed[i]) out += (side === 'old' ? SGR.bgRed : SGR.bgGreen) + t + SGR.reset;
+    else if (dimEscapes && isEscape(t)) out += SGR.dim + SGR.cyan + t + SGR.reset;
     else out += t;
   }
   return out;
 }
 
-/** `?` marker line in the style of Python's ndiff: `^` under each changed character. */
+/** `?` marker line in the style of Python's ndiff: a caret under each changed character. */
 function markers(tokens: string[], changed: boolean[]): string {
   let out = '';
-  for (let i = 0; i < tokens.length; i++) out += (changed[i] ? '^' : ' ').repeat([...tokens[i]!].length);
+  for (let i = 0; i < tokens.length; i++) out += (changed[i] ? '^' : ' ').repeat(len(tokens[i]!));
   return out.replace(/\s+$/, '');
 }
 
 /**
  * Renders the difference between two escaped texts for a person to read.
  *
- * It prints hunks of changed lines with context. Where a block of removed lines
- * is followed by the same number of added lines, the lines are paired and the
- * tokens that differ are marked: with a background colour, or, without colour,
- * with a `?` line of carets below each changed line. Escape sequences are shown
- * as text (`\x1b[1m`), dimmed when colour is on, so a changed style is as visible
- * as a changed word.
+ * A frame of a Bubble Tea program is mostly escape sequences, so a plain diff of
+ * its lines is a wall of `\x1b[38;2;...m`. For each changed line this shows two
+ * views:
+ *
+ *  - the text, as it looks on screen: the escape sequences left out, the words
+ *    that differ marked;
+ *  - the raw line, cut down to the neighbourhood of what changed, with the
+ *    escape sequences written out as text (dimmed when colour is on) and the
+ *    tokens that differ marked.
+ *
+ * Without colour the marks are `?` lines with a caret under each changed
+ * character, as in Python's ndiff. When only escape sequences changed, the text
+ * view says so and is left out.
  */
 export function renderDiff(oldText: string, newText: string, opts: RenderOptions): string {
   const a = splitLines(oldText);
   const b = splitLines(newText);
-  const edits = diffSequences(a, b);
-  const hunks = toHunks(a, b, edits, opts.context ?? 3);
+  const hunks = toHunks(a, b, diffSequences(a, b), opts.context ?? 1);
   const color = opts.color;
+  const width = Math.max(40, opts.width ?? 120);
+  const bodyW = width - 12;
   const lines: string[] = [];
-  const oldName = opts.oldName ?? 'golden';
-  const newName = opts.newName ?? 'run';
-  lines.push(color ? `${SGR.bold}--- ${oldName}${SGR.reset}` : `--- ${oldName}`);
-  lines.push(color ? `${SGR.bold}+++ ${newName}${SGR.reset}` : `+++ ${newName}`);
+  const dim = (t: string) => (color ? SGR.dim + t + SGR.reset : t);
+  const sign = (c: '-' | '+' | ' ') => (!color || c === ' ' ? c : (c === '-' ? SGR.red : SGR.green) + c + SGR.reset);
+  const gutter = (c: '-' | '+' | ' ', n: number | null, label: string) =>
+    `${sign(c)} ${n === null ? '    ' : String(n).padStart(4)} ${dim(label.padEnd(3))} `;
 
   const shown = opts.maxHunks ? hunks.slice(0, opts.maxHunks) : hunks;
   for (const h of shown) {
     const head = `@@ -${range(h.oldStart, h.oldLines)} +${range(h.newStart, h.newLines)} @@`;
     lines.push(color ? SGR.cyan + head + SGR.reset : head);
-    const note = (): void => {
-      const t = '\\ No newline at end of file';
-      lines.push(color ? `${SGR.dim}${t}${SGR.reset}` : t);
-    };
+    let o = h.oldStart;
+    let n = h.newStart;
     let i = 0;
+    const note = () => lines.push(dim('\\ No newline at end of file'));
     while (i < h.lines.length) {
       const l = h.lines[i]!;
       if (l.op === 'equal') {
-        lines.push('  ' + paint(tokenize(chomp(l.text)), null, 'same', color));
+        const t = visibleText(chomp(l.text));
+        const cut = len(t) > bodyW ? [...t].slice(0, bodyW - 1).join('') + '…' : t;
+        lines.push(`${gutter(' ', n, '│')}${dim(cut)}`);
         if (!l.text.endsWith('\n')) note();
-        i++;
+        o++; n++; i++;
         continue;
       }
-      // A block of deletes followed by a block of inserts.
       const dels: string[] = [];
       const ins: string[] = [];
       while (i < h.lines.length && h.lines[i]!.op === 'delete') dels.push(h.lines[i++]!.text);
       while (i < h.lines.length && h.lines[i]!.op === 'insert') ins.push(h.lines[i++]!.text);
-      const emit = (sign: '-' | '+', raw: string, tokens: string[] | null, changed: boolean[] | null) => {
+
+      const row = (c: '-' | '+', num: number, raw: string, tokensPair: [string[], boolean[]] | null, textPair: [string[], boolean[]] | null, textSame: boolean) => {
+        const side = c === '-' ? 'old' : 'new';
         const text = chomp(raw);
-        const side = sign === '-' ? 'old' : 'new';
-        const col = sign === '-' ? SGR.red : SGR.green;
         if (text === '') {
-          const empty = '(empty line)';
-          lines.push(color ? `${col}${sign}${SGR.reset} ${SGR.dim}${empty}${SGR.reset}` : `${sign} ${empty}`);
+          lines.push(`${gutter(c, num, '│')}${dim('(empty line)')}`);
         } else {
-          const body = paint(tokens ?? tokenize(text), changed, side, color);
-          lines.push(color ? `${col}${sign}${SGR.reset} ${body}` : `${sign} ${body}`);
-          if (!color && changed && tokens) {
-            const m = markers(tokens, changed);
-            if (m) lines.push(`? ${m}`);
+          if (!textSame) {
+            const [tt, tc] = textPair ?? [tokenize(visibleText(text)).length ? [visibleText(text)] : [''], [false]];
+            const w = window(tt, tc, bodyW, 30);
+            lines.push(`${gutter(c, num, '│')}${paint(w.tokens, w.changed, side, color, false)}`);
+            if (!color && textPair) { const m = markers(w.tokens, w.changed); if (m) lines.push(`${' '.repeat(9)}${dim('?')} ${m}`); }
           }
+          const [rt, rc] = tokensPair ?? [tokenize(text), tokenize(text).map(() => false)];
+          if (!textSame && visibleText(text) === text) {
+            if (!raw.endsWith('\n')) note();
+            return; // no escape sequences: the raw line is the text line
+          }
+          const w = window(rt, rc, bodyW, 24);
+          lines.push(`${gutter(textSame ? c : ' ', textSame ? num : null, visibleText(text) === text ? '│' : 'raw')}${paint(w.tokens, w.changed, side, color, true)}`);
+          if (!color && tokensPair) { const m = markers(w.tokens, w.changed); if (m) lines.push(`${' '.repeat(9)}${dim('?')} ${m}`); }
         }
         if (!raw.endsWith('\n')) note();
       };
+
       if (dels.length === ins.length) {
         for (let k = 0; k < dels.length; k++) {
-          const ta = tokenize(chomp(dels[k]!));
-          const tb = tokenize(chomp(ins[k]!));
-          const [ca, cb] = changedTokens(ta, tb);
-          emit('-', dels[k]!, ta, ca);
-          emit('+', ins[k]!, tb, cb);
+          const rawA = tokenize(chomp(dels[k]!));
+          const rawB = tokenize(chomp(ins[k]!));
+          const [ra, rb] = changedTokens(rawA, rawB);
+          const txtA = tokenize(visibleText(chomp(dels[k]!)));
+          const txtB = tokenize(visibleText(chomp(ins[k]!)));
+          const textSame = txtA.join('') === txtB.join('');
+          const [ta, tb] = changedTokens(txtA, txtB);
+          if (textSame) {
+            lines.push(dim(chomp(dels[k]!) === chomp(ins[k]!) ? '      same line, but the final line break differs' : '      same text, different escape sequences'));
+          }
+          row('-', o + k, dels[k]!, [rawA, ra], [txtA, ta], textSame);
+          row('+', n + k, ins[k]!, [rawB, rb], [txtB, tb], textSame);
         }
       } else {
-        for (const d of dels) emit('-', d, null, null);
-        for (const n of ins) emit('+', n, null, null);
+        dels.forEach((d, k) => row('-', o + k, d, null, null, false));
+        ins.forEach((d, k) => row('+', n + k, d, null, null, false));
       }
+      o += dels.length;
+      n += ins.length;
     }
   }
   if (shown.length < hunks.length) {
     const more = `... ${hunks.length - shown.length} more hunk${hunks.length - shown.length === 1 ? '' : 's'} not shown`;
-    lines.push(color ? SGR.dim + more + SGR.reset : more);
+    lines.push(dim(more));
   }
   return lines.join('\n');
 }
