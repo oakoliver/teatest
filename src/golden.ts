@@ -39,6 +39,8 @@ export type GoldenTarget =
   | {
       /** The test's name. Becomes `<dir>/<name>.golden`; a `/` makes a subdirectory. Also read from a node:test context (`t.name`) or a Vitest context (`task.name`). */
       name?: string;
+      /** Vitest's test context has a `task` (the test, with its suites): the name is made from it. */
+      task?: { name?: string; suite?: { name?: string; suite?: unknown } };
       /** Directory of golden files. Default: `testdata` next to the test file. */
       dir?: string;
       /** Full path of the golden file; overrides `name` and `dir`. */

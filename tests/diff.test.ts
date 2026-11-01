@@ -85,8 +85,8 @@ describe('renderDiff with colour', () => {
     const out = coloured('\x1b[1mold\x1b[m\n', '\x1b[1mnew\x1b[m\n');
     expect(out).toContain('\x1b[31m-\x1b[0m');
     expect(out).toContain('\x1b[32m+\x1b[0m');
-    expect(out).toContain('\x1b[41;97mold\x1b[0m'); // changed token on a red background
-    expect(out).toContain('\x1b[42;30mnew\x1b[0m');
+    expect(out).toContain('\x1b[1;7;31mold\x1b[0m'); // changed token in reverse red
+    expect(out).toContain('\x1b[1;7;32mnew\x1b[0m');
     expect(out).toContain('\x1b[2m\x1b[36m\\x1b[1m\x1b[0m'); // an unchanged escape sequence, dim cyan
     expect(out).not.toContain('?'); // no caret lines when colour does the marking
   });

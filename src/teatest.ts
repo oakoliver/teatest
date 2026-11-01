@@ -202,7 +202,11 @@ export async function WaitFor(
   ...options: WaitForOption[]
 ): Promise<void> {
   const err = await doWaitFor(r, condition, ...options);
-  if (err) throw err;
+  if (err) {
+    // Start the stack at the caller, so a test runner shows the line of the test and not this module.
+    Error.captureStackTrace?.(err, WaitFor);
+    throw err;
+  }
 }
 
 // ─── Output ─────────────────────────────────────────────────────────────────

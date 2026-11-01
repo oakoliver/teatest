@@ -86,6 +86,17 @@ describe('WaitFor', () => {
     expect(Object.keys(err)).not.toContain('output'); // test runners print enumerable properties of an error
   });
 
+  test('the stack of a failure starts at the test, not inside the library', async () => {
+    let err: Error | undefined;
+    try {
+      await WaitFor(stringReader('x'), () => false, WithDuration(1));
+    } catch (e) {
+      err = e as Error;
+    }
+    const frames = err!.stack!.split('\n').filter((l) => l.trim().startsWith('at '));
+    expect(frames[0]).toContain('waitfor.test.ts');
+  });
+
   test('long lines are cut', async () => {
     const err = (await doWaitFor(stringReader('x'.repeat(500)), () => false, WithDuration(1)))!;
     expect(err.message).toContain('x'.repeat(160) + '... (+340 characters)');

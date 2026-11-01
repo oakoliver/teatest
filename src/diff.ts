@@ -208,8 +208,8 @@ const SGR = {
   red: '\x1b[31m',
   green: '\x1b[32m',
   cyan: '\x1b[36m',
-  bgRed: '\x1b[41;97m',
-  bgGreen: '\x1b[42;30m',
+  bgRed: '\x1b[1;7;31m',
+  bgGreen: '\x1b[1;7;32m',
 };
 
 /** Marks which tokens of `a` and `b` are not part of their common sequence. */
@@ -270,7 +270,7 @@ function paint(tokens: string[], changed: boolean[], side: 'old' | 'new' | 'same
   let out = '';
   for (let i = 0; i < tokens.length; i++) {
     const t = tokens[i]!;
-    if (changed[i]) out += (side === 'old' ? SGR.bgRed : SGR.bgGreen) + t + SGR.reset;
+    if (changed[i]) out += (side === 'old' ? SGR.bgRed : SGR.bgGreen) + t + SGR.reset; // reverse video: legible on any theme
     else if (dimEscapes && isEscape(t)) out += SGR.dim + SGR.cyan + t + SGR.reset;
     else out += t;
   }
