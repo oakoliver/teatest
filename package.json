@@ -44,7 +44,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/oakoliver/teatest"
+    "url": "git+https://github.com/oakoliver/teatest.git"
   },
   "homepage": "https://github.com/oakoliver/teatest#readme",
   "bugs": {
