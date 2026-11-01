@@ -58,7 +58,11 @@ describe('WaitFor', () => {
   test('TestWaitForTimeout', async () => {
     const err = await doWaitFor(stringReader('nope'), () => false, WithDuration(1), WithCheckInterval(0.01));
     expect(err).toBeInstanceOf(WaitForTimeoutError);
-    expect(err!.message).toBe('WaitFor: condition not met after 1ms. Last output:\nnope');
+    // Go: "WaitFor: condition not met after 1ms. Last output:\nnope". This port says how much it read and
+    // that escape sequences were removed, because a styled frame is unreadable with them.
+    expect(err!.message).toBe(
+      'WaitFor: condition not met after 1ms. Last output (4 bytes, escape sequences removed):\nnope',
+    );
   });
 
   test('resolves as soon as the condition holds, and throws the error when it does not', async () => {
@@ -74,17 +78,23 @@ describe('WaitFor', () => {
     await WaitFor(r, (b) => b.toString() === 'abc', WithCheckInterval(1));
   });
 
-  test('a failure shows the output with control codes escaped and keeps the raw bytes', async () => {
-    const err = (await doWaitFor(stringReader('\x1b[1mbold\x1b[0m\r\n'), () => false, WithDuration(1))) as WaitForTimeoutError;
-    expect(err.message).toContain('\\x1b[1mbold\\x1b[0m\\r');
+  test('a failure shows the text without escape sequences and keeps the raw bytes on the error', async () => {
+    const err = (await doWaitFor(stringReader('\x1b[1mbold\x1b[0m\r\n\x1b]0;title\x07next'), () => false, WithDuration(1))) as WaitForTimeoutError;
+    expect(err.message).toContain(':\nbold\nnext');
     expect(err.message).not.toContain('\x1b');
-    expect(err.output.toString()).toBe('\x1b[1mbold\x1b[0m\r\n');
+    expect(err.output.toString()).toBe('\x1b[1mbold\x1b[0m\r\n\x1b]0;title\x07next');
+    expect(Object.keys(err)).not.toContain('output'); // test runners print enumerable properties of an error
+  });
+
+  test('long lines are cut', async () => {
+    const err = (await doWaitFor(stringReader('x'.repeat(500)), () => false, WithDuration(1)))!;
+    expect(err.message).toContain('x'.repeat(160) + '... (+340 characters)');
   });
 
   test('a failure shows only the last lines of a long output', async () => {
     const lines = Array.from({ length: 100 }, (_, i) => `line ${i}`).join('\n');
     const err = (await doWaitFor(stringReader(lines), () => false, WithDuration(1)))!;
-    expect(err.message).toContain('(60 earlier lines not shown)');
+    expect(err.message).toContain('(70 earlier lines not shown)');
     expect(err.message).toContain('line 99');
     expect(err.message).not.toContain('line 10\n');
   });

@@ -18,5 +18,6 @@ export {
   updating,
   type GoldenTarget,
 } from './golden.js';
+export { keyBytes } from './keys.js';
 export { escapeSeqs } from './quote.js';
 export { unifiedDiff, renderDiff } from './diff.js';

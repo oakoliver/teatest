@@ -11,9 +11,25 @@
     "declarationMap": true,
     "outDir": "./dist",
     "rootDir": "./src",
-    "types": ["node"],
-    "lib": ["ESNext"]
+    "types": [
+      "node"
+    ],
+    "lib": [
+      "ESNext"
+    ],
+    "paths": {
+      "@oakoliver/teatest": [
+        "./src/index.ts"
+      ]
+    }
   },
-  "include": ["src/**/*.ts"],
-  "exclude": ["node_modules", "dist", "tests", "examples"]
+  "include": [
+    "src/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "tests",
+    "examples"
+  ]
 }

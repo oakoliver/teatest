@@ -19,6 +19,7 @@ import {
   WithOutput,
   WithWindowSize,
   WithoutSignals,
+  InputDecoder,
   KeyMod,
   KeyPressMsg,
   WindowSizeMsg,
@@ -28,7 +29,8 @@ import {
   type ProgramOption,
 } from '@oakoliver/bubbletea';
 import { RequireEqual, type GoldenTarget } from './golden.js';
-import { escapeSeqs } from './quote.js';
+import { keyBytes } from './keys.js';
+import { stripAnsi } from './quote.js';
 
 /** Program defines the subset of the Program API that the tests need. */
 export interface Program {
@@ -130,28 +132,33 @@ export function WithDuration(ms: number): WaitForOption {
 /** Raised by WaitFor when its condition is not met in time. */
 export class WaitForTimeoutError extends Error {
   override readonly name = 'WaitForTimeoutError';
-  constructor(
-    message: string,
-    /** Everything WaitFor read from the reader, raw. */
-    readonly output: Buffer,
-  ) {
+  /** Everything WaitFor read from the reader, raw. Not enumerable, so test runners do not print it. */
+  declare readonly output: Buffer;
+  constructor(message: string, output: Buffer) {
     super(message);
+    Object.defineProperty(this, 'output', { value: output, enumerable: false });
   }
 }
 
-/** How many lines of the last output a WaitFor failure shows. */
-const LAST_OUTPUT_LINES = 40;
+/** How many lines, and how many characters of each, a WaitFor failure shows. */
+const LAST_OUTPUT_LINES = 30;
+const LAST_OUTPUT_WIDTH = 160;
 
 function toBuffer(chunk: Uint8Array | string | null | undefined): Buffer {
   if (chunk === null || chunk === undefined) return Buffer.alloc(0);
   return typeof chunk === 'string' ? Buffer.from(chunk) : Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength);
 }
 
-/** Visible form of the output for an error message: control codes escaped, only the last lines. */
+/**
+ * What a WaitFor failure shows of the output: the text with escape sequences
+ * removed (a frame of a styled program is mostly escape sequences), the last
+ * lines only, long lines cut. The raw bytes are on the error's `output`.
+ */
 function describeOutput(b: Buffer): string {
-  const lines = escapeSeqs(b).split('\n');
-  if (lines.length <= LAST_OUTPUT_LINES) return lines.join('\n');
-  return `(${lines.length - LAST_OUTPUT_LINES} earlier lines not shown)\n` + lines.slice(-LAST_OUTPUT_LINES).join('\n');
+  const lines = stripAnsi(b).split('\n');
+  const cut = lines.map((l) => (l.length > LAST_OUTPUT_WIDTH ? `${l.slice(0, LAST_OUTPUT_WIDTH)}... (+${l.length - LAST_OUTPUT_WIDTH} characters)` : l));
+  if (cut.length <= LAST_OUTPUT_LINES) return cut.join('\n');
+  return `(${cut.length - LAST_OUTPUT_LINES} earlier lines not shown)\n` + cut.slice(-LAST_OUTPUT_LINES).join('\n');
 }
 
 /** Used by tests: the same as {@link WaitFor} but resolves to an error instead of throwing. */
@@ -176,7 +183,7 @@ export async function doWaitFor(
     await sleep(wf.checkInterval);
   }
   return new WaitForTimeoutError(
-    `WaitFor: condition not met after ${formatDuration(wf.duration)}. Last output:\n${describeOutput(b)}`,
+    `WaitFor: condition not met after ${formatDuration(wf.duration)}. Last output (${b.length} bytes, escape sequences removed):\n${describeOutput(b)}`,
     b,
   );
 }
@@ -398,6 +405,31 @@ export class TestModel implements Program {
   /** Sends a window size message, as if the terminal had been resized. */
   resize(width: number, height: number): void {
     this.send(new WindowSizeMsg(width, height));
+  }
+
+  /**
+   * Sends named keys, in the notation of `KeyPressMsg.toString()`: `press("down", "enter")`,
+   * `press("ctrl+c")`, `press("shift+tab")`, `press("alt+x")`, `press("f5")`, or a character.
+   * Each name becomes the bytes a terminal would send, and Bubble Tea's input parser turns
+   * those into the message the program receives, so the model sees real key messages.
+   * Throws for a name it does not know.
+   */
+  press(...keys: string[]): void {
+    for (const name of keys) {
+      const decoder = new InputDecoder();
+      const msgs = [...decoder.feed(Buffer.from(keyBytes(name))), ...decoder.flush()];
+      for (const msg of msgs) this.send(msg);
+    }
+  }
+
+  /**
+   * Resolves once the program has handled the messages sent so far, so a test can look at
+   * the model it holds right after `send`, `type` or `press`. A message is handled in the
+   * event loop's microtasks, and this waits for them to drain. It does not wait for
+   * commands that do real work (timers, I/O): for those, wait for their output with WaitFor.
+   */
+  settle(): Promise<void> {
+    return new Promise((resolve) => setImmediate(() => setImmediate(resolve)));
   }
 
   /**

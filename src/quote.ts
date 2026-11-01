@@ -93,3 +93,16 @@ export function escapeSeqs(input: string | Uint8Array): string {
   lines.push(quoteLine(b.subarray(start)));
   return lines.join('\n');
 }
+
+// Control sequences as raw bytes: CSI, OSC (ended by BEL or ST), other ESC sequences.
+const ANSI_SEQUENCE = /\x1b\[[0-9;:<=>?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[PX^_][^\x1b]*\x1b\\|\x1b[ -/]*[0-~]/g;
+
+/**
+ * Removes escape sequences and carriage returns from terminal output, leaving the
+ * text a person would read. Cursor movements are dropped, not applied, so it is
+ * the text written, not a picture of the screen.
+ */
+export function stripAnsi(input: string | Uint8Array): string {
+  const text = typeof input === 'string' ? input : new TextDecoder().decode(input);
+  return text.replace(ANSI_SEQUENCE, '').replace(/\r/g, '');
+}

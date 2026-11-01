@@ -1,0 +1,3 @@
+[test]
+# examples/frameworks are for Vitest and node:test, not for bun test.
+pathIgnorePatterns = ["examples/frameworks/**"]
