@@ -13,7 +13,7 @@ npm install --save-dev @oakoliver/teatest
 npm install @oakoliver/bubbletea   # the peer dependency; you have it already
 ```
 
-Node 20 or newer, or Bun. The package is ESM and CommonJS, with types, and has no dependencies of its own.
+Tested with Bun 1.4 and Node 26. The package is ESM and CommonJS, with types, and has no dependencies of its own.
 
 ## A first test
 
@@ -132,7 +132,7 @@ A known issue in `@oakoliver/bubbletea` 1.2.1 that touches tests: `KeyPressMsg.t
 
 [`examples/`](examples/) has runnable suites, from a counter to two full-screen programs. Run them all with `bun install && bun test`. [`examples/README.md`](examples/README.md) says what each shows.
 
-<img alt="bun test runs the counter, form, kanban and blocks suites; each test passes and the run ends with the number of tests and files" src="https://raw.githubusercontent.com/oakoliver/teatest/main/assets/suite.gif" width="800">
+<img alt="ls shows the tests and examples folders, then bun test --dots prints a dot for each test and ends with the number of tests, expect calls and files" src="https://raw.githubusercontent.com/oakoliver/teatest/main/assets/suite.gif" width="800">
 
 ### Small ones
 
@@ -154,7 +154,7 @@ A known issue in `@oakoliver/bubbletea` 1.2.1 that touches tests: `KeyPressMsg.t
 
 ### Updating golden files
 
-<img alt="After the column rename, UPDATE_GOLDEN=1 bun test rewrites the kanban golden files, git diff --stat lists them and the suite passes" src="https://raw.githubusercontent.com/oakoliver/teatest/main/assets/update-goldens.gif" width="700">
+<img alt="After the Done column gets a different green, UPDATE_GOLDEN=1 bun test rewrites the kanban golden files, git diff --stat lists the four that changed and the suite passes" src="https://raw.githubusercontent.com/oakoliver/teatest/main/assets/update-goldens.gif" width="700">
 
 The recordings are made with [`@oakoliver/vhs`](https://github.com/oakoliver/vhs) from the tapes in [`assets/tapes/`](assets/tapes/).
 
