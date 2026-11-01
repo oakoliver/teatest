@@ -73,10 +73,14 @@ export function WithProgramOptions(...options: ProgramOption[]): TestOption {
 
 /**
  * The environment a test program sees unless `WithProgramOptions` sets another
- * with `WithEnvironment`. It is fixed so that the escape sequences a program
- * writes at startup do not depend on the terminal or CI machine the tests run on.
- * `TERM_PROGRAM=Apple_Terminal` is the combination in which Bubble Tea does not
- * send its startup capability probe, which keeps that noise out of golden files.
+ * with `WithEnvironment`. It is fixed so that what a program writes does not
+ * depend on the terminal or CI machine the tests run on: the colour profile
+ * (TrueColor, from `COLORTERM`) and the startup probe both come from it.
+ *
+ * Bubble Tea, like Go, writes a synchronized-output/unicode-core probe at
+ * startup whether or not the output is a terminal, unless the environment says
+ * the terminal cannot answer. `TERM_PROGRAM=Apple_Terminal` is such an
+ * environment, so the probe stays out of golden files.
  */
 export const DEFAULT_TEST_ENVIRONMENT: readonly string[] = Object.freeze([
   'TERM=xterm-256color',
@@ -217,6 +221,14 @@ export async function WaitFor(
  * previous `read()`, like reading a Go `bytes.Buffer`.
  */
 export class Output extends Writable implements Reader {
+  /**
+   * The test output stands for the program's terminal. Bubble Tea 1.3 detects
+   * the colour profile as Go does, and an output that is not a terminal gets
+   * no styles at all; marking this one as a terminal keeps colours in golden
+   * files, with the profile chosen by the environment (`TERM`, `COLORTERM`,
+   * `NO_COLOR`...). Pass `WithColorProfile` in `WithProgramOptions` to force one.
+   */
+  readonly isTTY = true;
   private chunks: Buffer[] = [];
   private everything: Buffer[] = [];
 
@@ -427,13 +439,23 @@ export class TestModel implements Program {
   }
 
   /**
-   * Resolves once the program has handled the messages sent so far, so a test can look at
-   * the model it holds right after `send`, `type` or `press`. A message is handled in the
-   * event loop's microtasks, and this waits for them to drain. It does not wait for
-   * commands that do real work (timers, I/O): for those, wait for their output with WaitFor.
+   * Resolves once the program is idle and its screen is up to date:
+   *
+   * - every message sent so far (`send`, `type`, `press`, `resize`, and bytes from
+   *   `writeInput`) has been handled by `update`,
+   * - so have the messages that synchronous commands returned in response,
+   * - and the frame for the resulting model has been written to the output.
+   *
+   * So right after `await tm.settle()`, `tm.output()` holds the frame of the last
+   * input, and a golden file made from it does not depend on the frame timer.
+   * It does not wait for commands that wait on timers or I/O: for those, wait for
+   * their output with `WaitFor`. Uses Bubble Tea's `program.settle()` (1.3.0+).
    */
-  settle(): Promise<void> {
-    return new Promise((resolve) => setImmediate(() => setImmediate(resolve)));
+  async settle(): Promise<void> {
+    const program = this.program as TeaProgram & { settle?: () => Promise<void> };
+    if (typeof program.settle === 'function') return program.settle();
+    // Bubble Tea before 1.3.0: the messages are handled, but the frame may not be written yet.
+    await new Promise((resolve) => setImmediate(() => setImmediate(resolve)));
   }
 
   /**

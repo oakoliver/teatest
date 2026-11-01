@@ -210,7 +210,7 @@ describe('autoplay', () => {
     expect(a.state).not.toBe(c.state);
     expect(a.game.score).toBeGreaterThan(0);
     expect(filled(a.game)).toBeGreaterThan(0);
-  });
+  }, 20_000); // three games of 20 s of frames each: CPU-bound, about 5 s on a busy machine
 
   test('where seed 7 stands after twenty seconds is a golden file', async () => {
     const [tm, game] = start({ seed: 7, autoplay: true });

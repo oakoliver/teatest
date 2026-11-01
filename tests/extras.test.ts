@@ -5,6 +5,7 @@ import {
   NewView,
   Quit,
   WithEnvironment,
+  WithFPS,
   WindowSizeMsg,
   type Cmd,
   type Model,
@@ -14,11 +15,13 @@ import {
 import {
   DEFAULT_TEST_ENVIRONMENT,
   NewTestModel,
+  RequireEqualOutput,
   WaitFor,
   WithFinalTimeout,
   WithInitialTermSize,
   WithProgramOptions,
 } from '../src/index.js';
+import { stripAnsi } from '../src/quote.js';
 
 /** Records every message it gets and draws the last window size and key. */
 class Recorder implements Model {
@@ -164,5 +167,63 @@ describe('lifecycle', () => {
     tm.send('late');
     tm.type('late');
     expect((await tm.finalModel<Recorder>()).tags()).not.toContain('KeyPressMsg');
+  });
+});
+
+describe('settle', () => {
+  /** A counter whose every key also sends a follow-up message from a synchronous command. */
+  class Counter implements Model {
+    constructor(readonly n = 0, readonly echoes = 0) {}
+    init(): Cmd {
+      return null;
+    }
+    update(msg: Msg): [Model, Cmd] {
+      if (msg._tag === 'KeyPressMsg') {
+        if (String(msg) === 'q') return [this, Quit];
+        return [new Counter(this.n + 1, this.echoes), () => 'echo'];
+      }
+      if (msg === 'echo') return [new Counter(this.n, this.echoes + 1), null];
+      return [this, null];
+    }
+    view(): View {
+      return NewView(`count=${this.n} echoes=${this.echoes}`);
+    }
+  }
+
+  // Before 1.0.1 settle() resolved once the messages were handled, but the frame was only written
+  // on the next tick of the frame timer: a check or a golden right after press() + settle() saw the
+  // previous frame, or not, depending on timing. A frame rate of 1 makes that window a second long.
+  for (const fps of [60, 1]) {
+    test(`after press() + settle() the output holds the frame of the last key (${fps} fps)`, async () => {
+      const tm = NewTestModel(new Counter(), WithInitialTermSize(30, 2), WithProgramOptions(WithFPS(fps)));
+      for (let i = 1; i <= 5; i++) {
+        tm.press('+');
+        await tm.settle();
+        const frame = stripAnsi(tm.output().read());
+        expect(frame).toContain(`count=${i} echoes=${i}`);
+      }
+      tm.quit();
+      await tm.waitFinished();
+    });
+  }
+
+  test('bytes from writeInput, including a lone escape, are handled before it resolves', async () => {
+    const tm = NewTestModel(new Recorder(), WithProgramOptions(WithFPS(1)));
+    tm.writeInput('x\x1b');
+    await tm.settle();
+    expect(stripAnsi(tm.output().read())).toContain('esc');
+    tm.quit();
+    await tm.waitFinished();
+  });
+
+  test('a golden made after settle() has every intermediate frame', async () => {
+    const tm = NewTestModel(new Counter(), WithInitialTermSize(30, 2), WithProgramOptions(WithFPS(1)));
+    await tm.settle(); // the first frame
+    for (const key of ['+', '+', '+']) {
+      tm.press(key);
+      await tm.settle();
+    }
+    tm.press('q');
+    RequireEqualOutput((await tm.finalOutput()).read(), 'settle-frames');
   });
 });

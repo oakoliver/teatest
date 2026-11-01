@@ -22,13 +22,10 @@ describe('keyBytes', () => {
     });
   }
 
-  test('alt+x arrives as code x with the alt modifier', () => {
-    // KeyPressMsg.toString() says "x" for this message, because the port's parser also sets text "x" on
-    // ESC x, where Go's parser leaves the text empty and prints "alt+x". See the README.
-    const d = new InputDecoder();
-    const [msg] = [...d.feed(Buffer.from(keyBytes('alt+x'))), ...d.flush()] as any[];
-    expect(msg.code).toBe('x'.codePointAt(0));
-    expect(msg.mod).toBe(2);
+  test('alt+x is parsed back as alt+x', () => {
+    // As in Go, an Alt-prefixed letter (ESC x) carries no text, so its string is "alt+x" (Bubble Tea 1.2.2+).
+    expect(parse('alt+x')).toEqual(['alt+x']);
+    expect(parse('alt+X')).toEqual(['alt+shift+x']);
   });
 
   test('an unknown name throws', () => {
