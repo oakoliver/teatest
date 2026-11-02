@@ -6,14 +6,14 @@
       "name": "@oakoliver/teatest",
       "devDependencies": {
         "@oakoliver/bubbles": "^1.2.2",
-        "@oakoliver/bubbletea": "^1.2.1",
+        "@oakoliver/bubbletea": "^1.3.0",
         "@oakoliver/lipgloss": "^1.1.3",
         "@types/node": "^20",
         "esbuild": "^0.28.2",
         "typescript": "^5",
       },
       "peerDependencies": {
-        "@oakoliver/bubbletea": "^1.2.1",
+        "@oakoliver/bubbletea": "^1.3.0",
       },
     },
   },
@@ -72,7 +72,7 @@
 
     "@oakoliver/bubbles": ["@oakoliver/bubbles@1.2.2", "", { "peerDependencies": { "@oakoliver/bubbletea": "^1.1.0", "@oakoliver/lipgloss": "^1.1.0" } }, "sha512-ev37CF/h/4f5KQmApO0GFz5EUAzSb5M6eNNFLq+rLOAcA34gTtIoCoWH/wZ6mmQXCKNrnhL3TwR4jXmTh4VCHg=="],
 
-    "@oakoliver/bubbletea": ["@oakoliver/bubbletea@1.2.1", "", {}, "sha512-7Cb/hNkfh+tA90gCpya48+U7SmN25XWRdDVTlzAp7JF6kigvbhcZNBW5uja+BHTUEzTHZ6i5diYm4lG8uVaMIw=="],
+    "@oakoliver/bubbletea": ["@oakoliver/bubbletea@1.4.0", "", {}, "sha512-iFeROXx83oKl0xTf1IiJSzU8HOqQJc732OgCvdbZXq8oxLZVDgxToTUTUfziQDDN1Nr2lPDVTuu2Pq1Yv1HbPQ=="],
 
     "@oakoliver/lipgloss": ["@oakoliver/lipgloss@1.1.3", "", {}, "sha512-MZyETulLE/ps8q7U86UL18oCU4D/aTo2tD+1MhkWb0eZ3HTzd0QKT5OoURjOE8eCO0NNh+OFJK7jbj6U0CBWSA=="],
 
